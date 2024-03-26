@@ -1,0 +1,242 @@
+-- create table nashville_housing
+
+CREATE TABLE sylwiadb.nashville_housing
+(unique_id int,
+parcel_id varchar(20),
+land_use varchar(50),
+property_address varchar(255),
+sale_date DATE,
+sale_price DECIMAL(10,2), 
+legal_ref varchar(50), 
+sold_as_vacant varchar(3),
+owner_name varchar(255),
+owner_address varchar (255),
+acreage DECIMAL(10,2), 
+tax_district varchar(50), 
+land_value DECIMAL(10,2), 
+building_value DECIMAL(10,2), 
+total_value DECIMAL(10,2), 
+year_built int, 
+bedrooms int, 
+full_bath int, 
+half_bath int);
+
+----------------------
+-- load data into table 
+LOAD DATA LOCAL INFILE "C:\\Users\\SQL\\Nashville Housing Data for Data Cleaning.csv"
+INTO TABLE sylwiadb.nashville_housing
+FIELDS TERMINATED BY ',' ENCLOSED BY '"'
+LINES TERMINATED BY '\n'
+IGNORE 1 LINES
+(unique_id, parcel_id, land_use, property_address, @sale_date, sale_price, legal_ref, sold_as_vacant, owner_name, owner_address, acreage, tax_district, land_value, building_value, total_value, year_built, bedrooms, full_bath, half_bath)
+SET sale_date= STR_TO_DATE(@sale_date, '%M %e, %Y');
+
+------------------------------------------
+-- Cleaning data in SQL Queries
+SELECT *
+FROM sylwiadb.nashville_housing ;
+-------------------------------------------------------
+-- Populate property address data 
+SELECT *
+FROM sylwiadb.nashville_housing
+WHERE property_address IS NULL 
+-- OR property_address = ''
+ORDER BY parcel_id
+;
+-- updating property_address empty cells with NULL values for further data cleaning purposes 
+UPDATE sylwiadb.nashville_housing
+SET property_address = NULL
+WHERE property_address ='' ;
+
+-- Populate property address with coalesce statement 
+SELECT a.parcel_id, a.property_address, b.parcel_id, b.property_address, coalesce(a.property_address,b.property_address) AS merged_property_address
+FROM sylwiadb.nashville_housing a
+JOIN sylwiadb.nashville_housing b
+ON a.parcel_id=b.parcel_id
+AND a.unique_id <> b.unique_id
+WHERE a.property_address IS NULL ;
+
+-- Updating cells with Join & coalesce function 
+UPDATE sylwiadb.nashville_housing a
+JOIN sylwiadb.nashville_housing b
+ON a.parcel_id=b.parcel_id
+AND a.unique_id <> b.unique_id
+SET a.property_address = coalesce(a.property_address,b.property_address)
+WHERE a.property_address IS NULL ;
+
+-- OR instead of Coalesce function to achieve the same result Join & Case statements can be used instead
+UPDATE sylwiadb.nashville_housing a	
+JOIN sylwiadb.nashville_housing b
+ON a.parcel_id=b.parcel_id
+AND a.unique_id <> b.unique_id
+SET a.property_address = CASE (
+							WHEN a.property_address IS NULL THEN b.property_address
+                            ELSE a.property_address
+							END)
+WHERE a.property_address IS NULL ;
+
+-- double check if it works
+SELECT *
+FROM sylwiadb.nashville_housing
+WHERE property_address IS NULL;
+
+---------------------------------------------------------------------------------------------
+-- Breaking out Property_Address column into individual columns (Address, City, State)
+SELECT *
+FROM sylwiadb.nashville_housing
+-- WHERE property_address IS NULL 
+-- ORDER BY parcel_id 
+;
+-- using locate function to find the first comma position in text string 
+SELECT 
+SUBSTRING(sylwiadb.nashville_housing.property_address, 1, locate(',',property_address)) AS address, 
+locate(',',property_address)
+FROM sylwiadb.nashville_housing ;
+
+-- returning text to the first comma in the text string refers to address
+SELECT 
+SUBSTRING(sylwiadb.nashville_housing.property_address, 1, locate(',',property_address)-1) AS address 
+FROM sylwiadb.nashville_housing ;
+
+-- returning text between 1st and 2nd comma in the text string refers as city 
+SELECT 
+SUBSTRING(sylwiadb.nashville_housing.property_address, 1, locate(',',property_address)-1) AS address ,
+SUBSTRING(sylwiadb.nashville_housing.property_address, locate(',',property_address)+1, length(property_address)) AS city 
+FROM sylwiadb.nashville_housing ;
+
+-- adding 2 new columns to nashville_housing table 
+ALTER TABLE nashville_housing
+ADD property_split_address VARCHAR(255) ;
+
+UPDATE nashville_housing
+SET property_split_address = SUBSTRING(sylwiadb.nashville_housing.property_address, 1, locate(',',property_address)-1);
+
+ALTER TABLE nashville_housing
+ADD property_split_city VARCHAR(255) ;
+
+UPDATE nashville_housing
+SET property_split_city = SUBSTRING(sylwiadb.nashville_housing.property_address, locate(',',property_address)+1, length(property_address)) ;
+
+SELECT *
+FROM nashville_housing;
+
+-- Breaking out owner_address into 3 columns (address, city, state) 
+-- replacing empty cells with NULL values 
+UPDATE nashville_housing
+SET owner_address = NULL
+WHERE owner_address ='';
+
+UPDATE nashville_housing
+SET owner_name = NULL 
+WHERE owner_name='';
+
+SELECT 
+substring_index(substring_index(owner_address,',',1),',',-1) AS owner_split_address,
+substring_index(substring_index(owner_address,',',2),',',-1) AS owner_split_city,
+substring_index(substring_index(owner_address,',',3),',',-1) AS owner_split_state
+FROM sylwiadb.nashville_housing ;
+
+-- adding 3 new columns
+ALTER TABLE nashville_housing
+ADD owner_split_address VARCHAR(255);
+
+UPDATE nashville_housing
+SET owner_split_address = substring_index(substring_index(owner_address,',',1),',',-1) ;
+
+ALTER TABLE nashville_housing
+ADD owner_split_city VARCHAR(255); 
+
+UPDATE nashville_housing
+SET owner_split_city = substring_index(substring_index(owner_address,',',2),',',-1) ;
+
+ALTER TABLE nashville_housing
+ADD owner_split_state VARCHAR(255);
+
+UPDATE nashville_housing
+SET owner_split_state = substring_index(substring_index(owner_address,',',3),',',-1) ;
+
+SELECT *
+FROM sylwiadb.nashville_housing ;
+
+-- change Y and N in Sold_as_vacant field
+SELECT DISTINCT(sold_as_vacant), COUNT(sold_as_vacant)
+FROM sylwiadb.nashville_housing 
+GROUP BY sold_as_vacant
+order by 2;
+
+SELECT sold_as_vacant, 
+	CASE WHEN sold_as_vacant ='N' THEN 'No'
+		WHEN sold_as_vacant = 'Y' THEN 'YES'
+        ELSE sold_as_vacant
+        END
+FROM sylwiadb.nashville_housing ;
+
+UPDATE nashville_housing
+SET sold_as_vacant = CASE WHEN sold_as_vacant ='N' THEN 'No'
+		WHEN sold_as_vacant = 'Y' THEN 'YES'
+        ELSE sold_as_vacant
+        END ; 
+
+-- double check
+SELECT sold_as_vacant
+FROM sylwiadb.nashville_housing ;
+--------------------------------------------------------------------------------
+-- removing duplicates 
+WITH row_num_CTE AS(
+SELECT * ,
+row_number()OVER (
+PARTITION BY parcel_id,
+			property_address,
+            sale_date,
+            sale_price,
+            legal_ref
+            ORDER BY unique_id
+            ) row_num
+FROM nashville_housing
+-- ORDER BY parcel_id
+)
+DELETE FROM nashville_housing
+		WHERE (parcel_id,
+			property_address,
+            sale_date,
+            sale_price,
+            legal_ref,
+            unique_id) IN(
+            SELECT parcel_id,
+			property_address,
+            sale_date,
+            sale_price,
+            legal_ref,
+            unique_id
+			FROM row_num_CTE
+			WHERE row_num > 1) ;
+-- ORDER BY property_address; 
+
+-- checking if duplicates were removed
+WITH row_num_CTE AS(
+SELECT * ,
+row_number()OVER (
+PARTITION BY parcel_id,
+			property_address,
+            sale_date,
+            sale_price,
+            legal_ref
+            ORDER BY unique_id
+            ) row_num
+FROM nashville_housing
+-- ORDER BY parcel_id
+)
+SELECT *
+			FROM row_num_CTE
+			WHERE row_num > 1 ;
+-- ORDER BY property_address; 
+
+-- DELETE unused columns
+ALTER TABLE sylwiadb.nashville_housing
+DROP COLUMN owner_address,
+DROP COLUMN	tax_district, 
+DROP COLUMN property_address;
+
+SELECT *
+FROM nashville_housing;
+
